@@ -1,31 +1,75 @@
-FROM ruby:3.2.2
+# syntax = docker/dockerfile:1
 
-# add nodejs and yarn dependencies for the frontend
-RUN curl -sL https://deb.nodesource.com/setup_12.x | bash - && \
-curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add - && \
-echo "deb https://dl.yarnpkg.com/debian/ stable main" | tee /etc/apt/sources.list.d/yarn.list
+# Make sure RUBY_VERSION matches the Ruby version in .ruby-version and Gemfile
+ARG RUBY_VERSION=3.2.2
+FROM registry.docker.com/library/ruby:$RUBY_VERSION-slim as base
 
-# Instala nossas dependencias
-RUN apt-get update && apt-get install -qq -y --no-install-recommends \
-nodejs yarn build-essential libpq-dev imagemagick git-all nano
+# Rails app lives here
+WORKDIR /rails
 
-# Instalar bundler
-RUN gem install bundler
+# Set production environment
+ENV RAILS_ENV="production" \
+    BUNDLE_DEPLOYMENT="1" \
+    BUNDLE_PATH="/usr/local/bundle" \
+    BUNDLE_WITHOUT="development"
 
-# Seta nosso path
-ENV INSTALL_PATH /onebitexchange
 
-# Cria nosso diretório
-RUN mkdir -p $INSTALL_PATH
+# Throw-away build stage to reduce size of final image
+FROM base as build
 
-# Seta o nosso path como o diretório principal
-WORKDIR $INSTALL_PATH
+# Install packages needed to build gems and node modules
+RUN apt-get update -qq && \
+    apt-get install --no-install-recommends -y build-essential curl git libpq-dev libvips node-gyp pkg-config python-is-python3
 
-# Copia o nosso Gemfile para dentro do container
-COPY Gemfile ./
+# Install JavaScript dependencies
+ARG NODE_VERSION=20.10.0
+ARG YARN_VERSION=1.22.21
+ENV PATH=/usr/local/node/bin:$PATH
+RUN curl -sL https://github.com/nodenv/node-build/archive/master.tar.gz | tar xz -C /tmp/ && \
+    /tmp/node-build-master/bin/node-build "${NODE_VERSION}" /usr/local/node && \
+    npm install -g yarn@$YARN_VERSION && \
+    rm -rf /tmp/node-build-master
 
-# Seta o path para as Gems
-ENV BUNDLE_PATH /gems
+# Install application gems
+COPY Gemfile Gemfile.lock ./
+RUN bundle install && \
+    rm -rf ~/.bundle/ "${BUNDLE_PATH}"/ruby/*/cache "${BUNDLE_PATH}"/ruby/*/bundler/gems/*/.git && \
+    bundle exec bootsnap precompile --gemfile
 
-# Copia nosso código para dentro do container
+# Install node modules
+COPY package.json yarn.lock ./
+RUN yarn install --frozen-lockfile
+
+# Copy application code
 COPY . .
+
+# Precompile bootsnap code for faster boot times
+RUN bundle exec bootsnap precompile app/ lib/
+
+# Precompiling assets for production without requiring secret RAILS_MASTER_KEY
+RUN SECRET_KEY_BASE_DUMMY=1 ./bin/rails assets:precompile
+
+
+# Final stage for app image
+FROM base
+
+# Install packages needed for deployment
+RUN apt-get update -qq && \
+    apt-get install --no-install-recommends -y curl libvips postgresql-client && \
+    rm -rf /var/lib/apt/lists /var/cache/apt/archives
+
+# Copy built artifacts: gems, application
+COPY --from=build /usr/local/bundle /usr/local/bundle
+COPY --from=build /rails /rails
+
+# Run and own only the runtime files as a non-root user for security
+RUN useradd rails --create-home --shell /bin/bash && \
+    chown -R rails:rails db log storage tmp
+USER rails:rails
+
+# Entrypoint prepares the database.
+ENTRYPOINT ["/rails/bin/docker-entrypoint"]
+
+# Start the server by default, this can be overwritten at runtime
+EXPOSE 3000
+CMD ["./bin/rails", "server"]
