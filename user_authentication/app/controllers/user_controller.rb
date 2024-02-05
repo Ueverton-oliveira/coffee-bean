@@ -1,4 +1,11 @@
 class UserController < ApplicationController
+  def index
+    @users = User.all
+  end
+
+  def new
+  end
+
   def create
     user = User.new(user_params)
     if user.save
@@ -9,11 +16,9 @@ class UserController < ApplicationController
     end
   end
 
-  def new
-  end
 
-  def index
-  end
+
+
 
   private
 
