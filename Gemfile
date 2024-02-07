@@ -29,6 +29,7 @@ gem "cssbundling-rails"
 # Build JSON APIs with ease [https://github.com/rails/jbuilder]
 gem "jbuilder"
 
+
 # Use Redis adapter to run Action Cable in production
 # gem "redis", ">= 4.0.1"
 
@@ -47,6 +48,10 @@ gem "bootsnap", require: false
 gem 'bcrypt', '~> 3.1.7'
 gem 'net-http'
 gem 'dotenv-rails'
+
+gem 'execjs'
+gem 'therubyracer'
+gem "graphiql-rails"
 
 #binding.pry for debug
 gem 'pry'
