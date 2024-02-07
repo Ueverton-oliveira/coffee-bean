@@ -49,9 +49,6 @@ gem 'bcrypt', '~> 3.1.7'
 gem 'net-http'
 gem 'dotenv-rails'
 
-gem 'execjs'
-gem 'therubyracer'
-gem "graphiql-rails"
 
 #binding.pry for debug
 gem 'pry'
